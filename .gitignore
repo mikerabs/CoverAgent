@@ -3,6 +3,7 @@
 
 # Temporary files
 temp_files/
+test_temp/
 *.tmp
 *.log
 
