@@ -58,8 +58,8 @@ async def parse_resume_sections(resume_content: str) -> str:
     # Regex patterns for your custom resume style
     patterns = [
         r'\\begin{rSection}{EMPLOYMENT HISTORY}(.*?)\\end{rSection}',
-        r'\\begin{rSection}{PROJECTS}(.*?)\\end{rSection}'
-        r'\\begin{rSection}{ATHLETICS}(.*?)\\end{rSection}'
+        r'\\begin{rSection}{PROJECTS}(.*?)\\end{rSection}',
+        r'\\begin{rSection}{Athletics}(.*?)\\end{rSection}'
     ]
 
     extracted_sections = []
@@ -143,6 +143,8 @@ async def generate_bullet_points(resume_content: str, skills: List[str], job_des
         4. Be written in first person
         5. Start with an action verb, past tense
         6. no long em dashes, and don't precede the skill with a dash
+        7. Use backslashes for % signs or special characters like for latex
+        8. Never use 'my' or personal pronouns within response
 
         Resume Content:
         {resume_content}
@@ -166,7 +168,7 @@ async def generate_bullet_points(resume_content: str, skills: List[str], job_des
 
         bullet_text = response.choices[0].message.content.strip()
         bullets = [bullet.strip() for bullet in bullet_text.split('\n') if bullet.strip() and not bullet.strip().startswith('#')]
-        return bullets[:4]  # Limit to 4 bullet points
+        return bullets[:5]  # Limit to 5 bullet points
 
     except Exception as e:
         print(f"Error generating bullet points: {e}")
@@ -181,12 +183,35 @@ def create_cover_letter_latex(your_email:str, your_phone: str, company: str, rol
 
     #bullets_latex = "\n".join([f"\\item {bullet}" for bullet in bullet_points])
 
-    bullets_latex = "\n".join(
-        [f"\\item \\textbf{{{skill}}} - {bullet}"
-         for skill, bullet in zip(skills, bullet_points)]
-    )
+    #bullets_latex = "\n".join(
+        #[f"\\item \\textbf{{{skill}}} - {bullet}"
+         #for skill, bullet in zip(skills, bullet_points)]
+    #)
+    STOPWORDS = {"and", "or", "of", "in", "on", "for", "with", "to", "a", "an", "the"}
 
-    skills_latex = ", ".join([f"{skill}" for skill in skills])
+    def smart_capitalize(skill: str) -> str:
+        words = skill.split()
+        formatted = []
+        for i, w in enumerate(words):
+            # preserve acronyms or stylized casing
+            if w.isupper() or any(ch.isupper() for ch in w[1:]):  
+                formatted.append(w)
+            # lowercase stopwords (unless first word)
+            elif w.lower() in STOPWORDS and i != 0:
+                formatted.append(w.lower())
+            else:
+                formatted.append(w.capitalize())
+        return " ".join(formatted)
+
+    #addressing the capitalization of skills, took out - as LLM was putting it in anyway
+    bullets_latex = "\n".join([f"\\item \\textbf{{{smart_capitalize(skill)}}} {bullet}" for skill, bullet in zip(skills, bullet_points)])
+    #skills_latex = ", ".join([f"{skill}" for skill in skills])
+
+    #This addresses the 'and' after the last skill
+    skills_latex = (
+    " and ".join(skills) if len(skills) <= 2
+    else ", ".join(skills[:-1]) + ", and " + skills[-1])
+    
 
     latex_template = f"""
 \\documentclass[11pt,letterpaper]{{article}}
@@ -195,7 +220,7 @@ def create_cover_letter_latex(your_email:str, your_phone: str, company: str, rol
 \\usepackage{{parskip}}
 
 \\begin{{document}}
-
+\\pagestyle{{empty}}
 \\noindent
 {{\\LARGE \\textbf{{Mike Rabayda}}}} \\\\
 {your_email} \\\\
@@ -215,17 +240,17 @@ Your position calls for {skills_latex}.  I can offer the following qualification
 {bullets_latex}
 \\end{{itemize}}
 
-My enclosed resume provides further details.
-
 In addition to providing you with the skills that you require, it has also been commonplace for me to work with many different personalities, and sometimes under difficult circumstances. Each has taught me the importance of being a team player, and drove me into positions of leadership. Furthermore, I am comfortable working independently and as part of a team. In addition to bringing you a strong skillset, I also bring interpersonal skills that would fit well with your team and clients.
 
-Thank you for your time and consideration, I will contact you within two weeks’ time to follow up on my candidacy. Should you need to reach me before then, please do not hesitate. I look forward to hearing back from you.
+Thank you for your time and consideration, I will contact you within two weeks' time to follow up on my candidacy. Should you need to reach me before then, please do not hesitate. I look forward to hearing back from you.
 
 \\vspace{{1em}}
 
 \\noindent
 Sincerely, \\\\
-Mike Rabayda
+Mike Rabayda \\\\
+\\\\
+Enclosed: Resume
 
 \\end{{document}}
 """
