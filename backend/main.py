@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import subprocess
 from pathlib import Path
@@ -9,11 +10,13 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTa
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import openai
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI(title="CoverAgent", description="Generate custom cover letters from resumes and job descriptions")
 
@@ -30,7 +33,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 # Configure OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+#openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Ensure temp directories exist
 os.makedirs("temp_files", exist_ok=True)
@@ -45,7 +48,38 @@ async def read_root():
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Frontend not found</h1>", status_code=404)
 
-async def extract_skills_from_jd(job_description: str) -> List[str]:
+async def parse_resume_sections(resume_content: str) -> str:
+    """
+    Parse a LaTeX resume file and return only the relevant
+    information from Professional Experience and Projects sections.
+    """
+    content = resume_content
+
+    # Regex patterns for your custom resume style
+    patterns = [
+        r'\\begin{rSection}{EMPLOYMENT HISTORY}(.*?)\\end{rSection}',
+        r'\\begin{rSection}{PROJECTS}(.*?)\\end{rSection}'
+        r'\\begin{rSection}{ATHLETICS}(.*?)\\end{rSection}'
+    ]
+
+    extracted_sections = []
+    for pattern in patterns:
+        match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+        if match:
+            section_text = match.group(1).strip()
+            # Clean LaTeX formatting to reduce token usage
+            section_text = re.sub(r'\\[a-zA-Z]+\{.*?\}', '', section_text)  # remove commands
+            section_text = re.sub(r'\\[a-zA-Z]+', '', section_text)         # remove lone commands
+            section_text = re.sub(r'\s+', ' ', section_text).strip()        # normalize whitespace
+            extracted_sections.append(section_text)
+
+    if not extracted_sections:
+        return "No EMPLOYMENT HISTORY or PROJECTS found in resume."
+
+    print(extracted_sections)
+    return "\n\n".join(extracted_sections)
+
+async def extract_skills_from_jd(resume_content: str, job_description: str) -> List[str]:
     """Extract 3-5 key skills from job description using OpenAI"""
     try:
         # Check if we have a real OpenAI API key
@@ -55,25 +89,26 @@ async def extract_skills_from_jd(job_description: str) -> List[str]:
             print("Using mock skill extraction for testing")
             return ["Python", "Kubernetes", "Microservices", "PostgreSQL", "Cloud Platforms"]
 
-        client = openai.OpenAI(api_key=api_key)
+        #client = openai.OpenAI(api_key=openai.api_key)
 
         prompt = f"""
-        Analyze the following job description and extract 3-5 most important technical skills or qualifications required:
+        Analyze the following job description and extract 3-5 most important technical skills or qualifications required that have strong relation to the resume provided:
 
         Job Description:
         {job_description}
 
-        Return only a list of skills, one per line, without bullet points or numbers.
-        Focus on specific technical skills, tools, or qualifications mentioned.
+        Return only a list of skills, one per line, without bullet points or numbers. Do not exceed 4 words per skill, this is a hard limit. 
+        Focus on specific technical skills, tools, or qualifications mentioned in the job description, verbatim is better.
+        Examples might look like: strong Python progamming experience, exceptional comunication skills, excellent data communication, etc.
         """
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0.3
+            max_completion_tokens=2000
         )
 
+        print(response.model_dump_json(indent=2))
         skills_text = response.choices[0].message.content.strip()
         skills = [skill.strip() for skill in skills_text.split('\n') if skill.strip()]
         return skills[:5]  # Limit to 5 skills max
@@ -97,16 +132,17 @@ async def generate_bullet_points(resume_content: str, skills: List[str], job_des
                 "I built REST APIs using FastAPI handling 1M+ requests per day, showcasing experience with large-scale distributed systems"
             ]
 
-        client = openai.OpenAI(api_key=api_key)
+        #client = openai.OpenAI(api_key=api_key)
 
         prompt = f"""
-        Based on the resume content below and the required skills, generate 3-4 compelling bullet points for a cover letter.
+        Based on the resume content below and the required skills, generate a corresponding number of compelling bullet points for a cover letter.
         Each bullet point should:
-        1. Highlight relevant experience from the resume
-        2. Connect to one of the required skills
+        1. Highlight relevant experience from the resume, do not make anything else up.
+        2. Each bullet should be associated with each of the skills provided. No doubling up on one skill.
         3. Be specific and quantifiable when possible
         4. Be written in first person
-        5. Start with an action verb
+        5. Start with an action verb, past tense
+        6. no long em dashes, and don't precede the skill with a dash
 
         Resume Content:
         {resume_content}
@@ -121,11 +157,12 @@ async def generate_bullet_points(resume_content: str, skills: List[str], job_des
         """
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400,
-            temperature=0.5
+            max_completion_tokens=2000
         )
+
+        print(response.model_dump_json(indent=2))
 
         bullet_text = response.choices[0].message.content.strip()
         bullets = [bullet.strip() for bullet in bullet_text.split('\n') if bullet.strip() and not bullet.strip().startswith('#')]
@@ -272,11 +309,14 @@ async def generate_cover_letter(
             async with aiofiles.open(resume_path, 'r', encoding='utf-8') as f:
                 resume_content = await f.read()
 
+            #Parse the .tex resume for professional experience and projects 
+            resume_content_parsed = await parse_resume_sections(resume_content)            
+
             # Extract skills from job description
-            skills = await extract_skills_from_jd(job_description)
+            skills = await extract_skills_from_jd(resume_content_parsed,job_description)
 
             # Generate bullet points
-            bullet_points = await generate_bullet_points(resume_content, skills, job_description)
+            bullet_points = await generate_bullet_points(resume_content_parsed, skills, job_description)
 
             # Create cover letter LaTeX
             latex_content = create_cover_letter_latex(your_email, your_phone, company, role, source, skills, bullet_points)
