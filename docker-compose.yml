@@ -12,14 +12,14 @@ services:
     restart: unless-stopped
     
   # For development, uncomment the following service to run with live reload
-  # coveragent-dev:
-  #   build: .
-  #   command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
-  #   volumes:
-  #     - .:/app
-  #     - ./temp_files:/app/temp_files
-  #   restart: unless-stopped
+  coveragent-dev:
+    build: .
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - .:/app
+      - ./temp_files:/app/temp_files
+    restart: unless-stopped
