@@ -320,14 +320,19 @@
                 
                 // Extract filename from response header or use default
                 const contentDisposition = response.headers.get('content-disposition');
+                //this is where the cover letter name is created
                 let filename = 'cover_letter.pdf';
                 if (contentDisposition) {
                     const filenameMatch = contentDisposition.match(/filename="(.+)"/);
                     if (filenameMatch) {
                         filename = filenameMatch[1];
                     }
+                    console.log("header received");
                 }
-                
+                else{
+                  console.log("header not received");
+                }  
+
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();

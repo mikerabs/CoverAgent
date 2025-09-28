@@ -92,13 +92,16 @@ async def extract_skills_from_jd(resume_content: str, job_description: str) -> L
         #client = openai.OpenAI(api_key=openai.api_key)
 
         prompt = f"""
-        Analyze the following job description and extract 3-5 most important technical skills or qualifications required that have strong relation to the resume provided:
+        Analyze the following job description and extract 3-4 most important technical skills or qualifications required that have strong relation to the resume provided:
 
         Job Description:
         {job_description}
 
+        Resume information:
+        {resume_content}
+
         Return only a list of skills, one per line, without bullet points or numbers. Do not exceed 4 words per skill, this is a hard limit. 
-        Focus on specific technical skills, tools, or qualifications mentioned in the job description, verbatim is better.
+        Focus on specific technical skills, tools, or qualifications mentioned in the job description, verbatim qualifications from the JD is better.
         Examples might look like: strong Python progamming experience, exceptional comunication skills, excellent data communication, etc.
         """
 
@@ -111,7 +114,7 @@ async def extract_skills_from_jd(resume_content: str, job_description: str) -> L
         print(response.model_dump_json(indent=2))
         skills_text = response.choices[0].message.content.strip()
         skills = [skill.strip() for skill in skills_text.split('\n') if skill.strip()]
-        return skills[:5]  # Limit to 5 skills max
+        return skills[:4]  # Limit to 4 skills max
 
     except Exception as e:
         print(f"Error extracting skills: {e}")
@@ -168,7 +171,7 @@ async def generate_bullet_points(resume_content: str, skills: List[str], job_des
 
         bullet_text = response.choices[0].message.content.strip()
         bullets = [bullet.strip() for bullet in bullet_text.split('\n') if bullet.strip() and not bullet.strip().startswith('#')]
-        return bullets[:5]  # Limit to 5 bullet points
+        return bullets[:4]  # Limit to 5 bullet points
 
     except Exception as e:
         print(f"Error generating bullet points: {e}")
@@ -249,7 +252,7 @@ Thank you for your time and consideration, I will contact you within two weeks' 
 \\noindent
 Sincerely, \\\\
 Mike Rabayda \\\\
-\\\\
+
 Enclosed: Resume
 
 \\end{{document}}
@@ -257,12 +260,12 @@ Enclosed: Resume
 
     return latex_template
 
-async def compile_latex_to_pdf(latex_content: str, output_dir: str) -> str:
+async def compile_latex_to_pdf(latex_content: str, output_dir: str, company: str, role: str) -> str:
     """Compile LaTeX content to PDF"""
 
     # Create temporary LaTeX file
-    tex_file = os.path.join(output_dir, "cover_letter.tex")
-    pdf_file = os.path.join(output_dir, "cover_letter.pdf")
+    tex_file = os.path.join(output_dir, f"cover_letter_{company}_{role}.tex")
+    pdf_file = os.path.join(output_dir, f"cover_letter_{company}_{role}.pdf")
 
     # Write LaTeX content to file
     async with aiofiles.open(tex_file, mode='w') as f:
@@ -347,7 +350,7 @@ async def generate_cover_letter(
             latex_content = create_cover_letter_latex(your_email, your_phone, company, role, source, skills, bullet_points)
 
             # Compile to PDF
-            pdf_path = await compile_latex_to_pdf(latex_content, temp_dir)
+            pdf_path = await compile_latex_to_pdf(latex_content, temp_dir, company, role)
 
             # Copy PDF to a permanent location for serving
             permanent_filename = f"cover_letter_{uuid.uuid4().hex[:8]}.pdf"
@@ -362,11 +365,14 @@ async def generate_cover_letter(
             # Schedule cleanup of the permanent file
             background_tasks.add_task(cleanup_file, permanent_path)
 
+            safe_company = re.sub(r'[^A-Za-z0-9]+', '_', company)
+            safe_role = re.sub(r'[^A-Za-z0-9]+', '_', role)
+
             # Return PDF file
             return FileResponse(
                 permanent_path,
                 media_type="application/pdf",
-                filename=f"cover_letter_{company}_{role}.pdf"
+                filename=f"Rabayda_Cover_{safe_company}_{safe_role}.pdf"
             )
 
         except Exception as e:
